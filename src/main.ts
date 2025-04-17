@@ -27,6 +27,10 @@ class FlightSimulator {
     private gameOverScreen: HTMLDivElement | null = null;
     private explosions: THREE.Points[] = [];
     private isGameWon = false;
+    private difficultyScreen: HTMLDivElement;
+    private isGameStarted = false;
+    private isHardMode = false;
+    private bigCat: THREE.Group | null = null;
 
     constructor() {
         console.log('Inicjalizacja symulatora...');
@@ -52,11 +56,94 @@ class FlightSimulator {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(this.renderer.domElement);
 
-        // Światła
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.1); // Minimalne światło ambient
+        // Tworzenie wyświetlacza punktów
+        this.scoreDisplay = document.createElement('div');
+        this.scoreDisplay.style.position = 'fixed';
+        this.scoreDisplay.style.top = '20px';
+        this.scoreDisplay.style.left = '20px';
+        this.scoreDisplay.style.color = 'white';
+        this.scoreDisplay.style.fontSize = '24px';
+        this.scoreDisplay.style.fontFamily = 'Arial, sans-serif';
+        this.scoreDisplay.style.textShadow = '2px 2px 4px rgba(0,0,0,0.5)';
+        this.scoreDisplay.style.display = 'none'; // Ukrywamy na początku
+        document.body.appendChild(this.scoreDisplay);
+
+        // Tworzenie ekranu wyboru trudności
+        this.difficultyScreen = document.createElement('div');
+        this.difficultyScreen.style.position = 'fixed';
+        this.difficultyScreen.style.top = '50%';
+        this.difficultyScreen.style.left = '50%';
+        this.difficultyScreen.style.transform = 'translate(-50%, -50%)';
+        this.difficultyScreen.style.background = 'rgba(0, 0, 0, 0.8)';
+        this.difficultyScreen.style.color = 'white';
+        this.difficultyScreen.style.padding = '20px';
+        this.difficultyScreen.style.borderRadius = '10px';
+        this.difficultyScreen.style.textAlign = 'center';
+        this.difficultyScreen.innerHTML = `
+            <h1 style="margin-bottom: 20px;">Wybierz poziom trudności</h1>
+            <button id="easyMode" style="padding: 10px 20px; font-size: 18px; margin: 10px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 5px;">
+                Łatwy
+                <br>
+                <small style="font-size: 14px;">(z dodatkowym dużym kotem)</small>
+            </button>
+            <button id="hardMode" style="padding: 10px 20px; font-size: 18px; margin: 10px; cursor: pointer; background: #f44336; color: white; border: none; border-radius: 5px;">
+                Trudny
+                <br>
+                <small style="font-size: 14px;">(bez dodatkowego kota)</small>
+            </button>
+        `;
+        document.body.appendChild(this.difficultyScreen);
+
+        // Dodawanie obsługi przycisków
+        const easyButton = this.difficultyScreen.querySelector('#easyMode');
+        const hardButton = this.difficultyScreen.querySelector('#hardMode');
+        
+        if (easyButton) {
+            easyButton.addEventListener('click', () => this.startGame(false));
+        }
+        if (hardButton) {
+            hardButton.addEventListener('click', () => this.startGame(true));
+        }
+
+        // Obsługa zdarzeń
+        window.addEventListener('resize', this.onWindowResize.bind(this));
+        document.addEventListener('mousemove', this.onMouseMove.bind(this));
+        document.addEventListener('mousedown', this.onMouseDown.bind(this));
+        document.addEventListener('mouseup', this.onMouseUp.bind(this));
+        this.renderer.domElement.addEventListener('click', this.requestPointerLock.bind(this));
+        document.addEventListener('pointerlockchange', this.onPointerLockChange.bind(this));
+
+        // Start animacji
+        this.animate();
+        console.log('Inicjalizacja zakończona!');
+    }
+
+    private startGame(isHard: boolean): void {
+        this.isHardMode = isHard;
+        this.isGameStarted = true;
+        this.difficultyScreen.style.display = 'none';
+        this.scoreDisplay.style.display = 'block';
+
+        // Inicjalizacja świateł i terenu
+        this.setupLights();
+        this.createTerrain();
+        this.createMountains();
+        this.createBuildings();
+        this.createLakes();
+        this.createClouds();
+        this.createFlyingCats();
+        this.createAirplane();
+
+        // Reset stanu gry
+        this.score = 0;
+        this.updateScoreDisplay();
+    }
+
+    private setupLights(): void {
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
         this.scene.add(ambientLight);
         
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0); // Zwiększona intensywność
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
         directionalLight.position.set(5000, 8000, 0);
         directionalLight.castShadow = true;
         directionalLight.shadow.mapSize.width = 4096;
@@ -70,51 +157,11 @@ class FlightSimulator {
         directionalLight.shadow.bias = -0.0001;
         this.scene.add(directionalLight);
 
-        // Dodanie słońca
         const sunGeometry = new THREE.SphereGeometry(500, 32, 32);
         const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
         const sun = new THREE.Mesh(sunGeometry, sunMaterial);
         sun.position.copy(directionalLight.position);
         this.scene.add(sun);
-
-        // Generowanie terenu
-        console.log('Generowanie terenu...');
-        this.createTerrain();
-        this.createMountains();
-
-        // Dodajemy pozostałe elementy
-        this.createBuildings();
-        this.createLakes();
-        this.createClouds();
-        this.createFlyingCats();
-
-        // Tworzenie samolotu
-        console.log('Tworzenie samolotu...');
-        this.createAirplane();
-
-        // Obsługa zdarzeń
-        window.addEventListener('resize', this.onWindowResize.bind(this));
-        document.addEventListener('mousemove', this.onMouseMove.bind(this));
-        document.addEventListener('mousedown', this.onMouseDown.bind(this));
-        document.addEventListener('mouseup', this.onMouseUp.bind(this));
-        this.renderer.domElement.addEventListener('click', this.requestPointerLock.bind(this));
-        document.addEventListener('pointerlockchange', this.onPointerLockChange.bind(this));
-
-        // Tworzenie wyświetlacza punktów
-        this.scoreDisplay = document.createElement('div');
-        this.scoreDisplay.style.position = 'fixed';
-        this.scoreDisplay.style.top = '20px';
-        this.scoreDisplay.style.left = '20px';
-        this.scoreDisplay.style.color = 'white';
-        this.scoreDisplay.style.fontSize = '24px';
-        this.scoreDisplay.style.fontFamily = 'Arial, sans-serif';
-        this.scoreDisplay.style.textShadow = '2px 2px 4px rgba(0,0,0,0.5)';
-        document.body.appendChild(this.scoreDisplay);
-        this.updateScoreDisplay();
-
-        // Start animacji
-        this.animate();
-        console.log('Inicjalizacja zakończona!');
     }
 
     private createTerrain(): void {
@@ -377,11 +424,13 @@ class FlightSimulator {
     }
 
     private createFlyingCats(): void {
-        // Najpierw tworzymy dużego statycznego kota testowego
-        const bigCat = this.createCat(3); // 3x większy niż normalne koty
-        bigCat.position.set(0, 500, -1000); // Ustawiony przed graczem na początku
-        this.cats.push(bigCat);
-        this.scene.add(bigCat);
+        // Najpierw tworzymy dużego kota (tylko w trybie łatwym)
+        if (!this.isHardMode) {
+            this.bigCat = this.createCat(3);
+            this.bigCat.position.set(0, 500, -1000);
+            this.cats.push(this.bigCat);
+            this.scene.add(this.bigCat);
+        }
 
         // Zwykłe latające koty
         for (let i = 0; i < 5; i++) {
@@ -543,7 +592,7 @@ class FlightSimulator {
         this.lastShotTime = now;
 
         // Odejmowanie punktu za strzał
-        this.score = Math.max(0, this.score - 1);
+        this.score = Math.max(0, this.score - 3);
         this.updateScoreDisplay();
 
         // Tworzymy pocisk
@@ -695,25 +744,24 @@ class FlightSimulator {
             this.gameOverScreen = null;
         }
 
+        // Czyszczenie sceny
+        while(this.scene.children.length > 0){ 
+            this.scene.remove(this.scene.children[0]); 
+        }
+
         // Reset stanu gry
         this.isGameOver = false;
         this.isGameWon = false;
-        this.airplane.visible = true;
-        this.airplane.position.set(0, 500, 0);
-        this.airplane.rotation.set(0, 0, 0);
-        this.pitch = 0;
-        this.yaw = 0;
-        this.speed = this.baseSpeed;
-        this.isBoostActive = false;
-        
-        // Usuwanie wszystkich pocisków i wybuchów
-        this.bullets.forEach(bullet => this.scene.remove(bullet));
+        this.isGameStarted = false;
+        this.cats = [];
+        this.clouds = [];
         this.bullets = [];
-        this.explosions.forEach(explosion => this.scene.remove(explosion));
         this.explosions = [];
+        this.bigCat = null;
 
-        this.score = 0;
-        this.updateScoreDisplay();
+        // Pokazanie ekranu wyboru trudności
+        this.difficultyScreen.style.display = 'block';
+        this.scoreDisplay.style.display = 'none';
     }
 
     private updateBullets(): void {
@@ -875,6 +923,11 @@ class FlightSimulator {
 
         requestAnimationFrame(this.animate.bind(this));
         
+        if (!this.isGameStarted) {
+            this.renderer.render(this.scene, this.camera);
+            return;
+        }
+
         // Aktualizacja punktów
         this.updateScore();
 

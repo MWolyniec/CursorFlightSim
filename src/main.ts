@@ -377,40 +377,15 @@ class FlightSimulator {
     }
 
     private createFlyingCats(): void {
+        // Najpierw tworzymy dużego statycznego kota testowego
+        const bigCat = this.createCat(3); // 3x większy niż normalne koty
+        bigCat.position.set(0, 500, -1000); // Ustawiony przed graczem na początku
+        this.cats.push(bigCat);
+        this.scene.add(bigCat);
+
+        // Zwykłe latające koty
         for (let i = 0; i < 5; i++) {
-            const cat = new THREE.Group();
-
-            // Ciało kota
-            const bodyGeometry = new THREE.SphereGeometry(30, 16, 16);
-            const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xff69b4 }); // Różowy
-            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-            cat.add(body);
-
-            // Głowa
-            const headGeometry = new THREE.SphereGeometry(20, 16, 16);
-            const head = new THREE.Mesh(headGeometry, bodyMaterial);
-            head.position.x = 25;
-            head.position.y = 10;
-            cat.add(head);
-
-            // Uszy
-            const earGeometry = new THREE.ConeGeometry(8, 20, 3);
-            const ear1 = new THREE.Mesh(earGeometry, bodyMaterial);
-            const ear2 = new THREE.Mesh(earGeometry, bodyMaterial);
-            ear1.position.set(25, 30, 8);
-            ear2.position.set(25, 30, -8);
-            cat.add(ear1);
-            cat.add(ear2);
-
-            // Ogon
-            const tailGeometry = new THREE.CylinderGeometry(3, 3, 40, 8);
-            const tail = new THREE.Mesh(tailGeometry, bodyMaterial);
-            tail.position.x = -25;
-            tail.position.y = 10;
-            tail.rotation.z = Math.PI / 4;
-            cat.add(tail);
-
-            // Początkowa pozycja
+            const cat = this.createCat(1);
             const angle = (Math.random() * 2 * Math.PI) / 5;
             const radius = 2000;
             cat.position.set(
@@ -418,11 +393,46 @@ class FlightSimulator {
                 1500 + Math.random() * 1000,
                 Math.sin(angle) * radius
             );
-
-            cat.castShadow = true;
             this.cats.push(cat);
             this.scene.add(cat);
         }
+    }
+
+    private createCat(scale: number = 1): THREE.Group {
+        const cat = new THREE.Group();
+        cat.name = 'cat'; // Dodajemy nazwę dla identyfikacji
+
+        // Ciało kota
+        const bodyGeometry = new THREE.SphereGeometry(30 * scale, 16, 16);
+        const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xff69b4 }); // Różowy
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        cat.add(body);
+
+        // Głowa
+        const headGeometry = new THREE.SphereGeometry(20 * scale, 16, 16);
+        const head = new THREE.Mesh(headGeometry, bodyMaterial);
+        head.position.x = 25 * scale;
+        head.position.y = 10 * scale;
+        cat.add(head);
+
+        // Uszy
+        const earGeometry = new THREE.ConeGeometry(8 * scale, 20 * scale, 3);
+        const ear1 = new THREE.Mesh(earGeometry, bodyMaterial);
+        const ear2 = new THREE.Mesh(earGeometry, bodyMaterial);
+        ear1.position.set(25 * scale, 30 * scale, 8 * scale);
+        ear2.position.set(25 * scale, 30 * scale, -8 * scale);
+        cat.add(ear1);
+        cat.add(ear2);
+
+        // Ogon
+        const tailGeometry = new THREE.CylinderGeometry(3 * scale, 3 * scale, 40 * scale, 8);
+        const tail = new THREE.Mesh(tailGeometry, bodyMaterial);
+        tail.position.x = -25 * scale;
+        tail.position.y = 10 * scale;
+        tail.rotation.z = Math.PI / 4;
+        cat.add(tail);
+
+        return cat;
     }
 
     private requestPointerLock(): void {
@@ -706,62 +716,6 @@ class FlightSimulator {
         this.updateScoreDisplay();
     }
 
-    private checkCollision(object1: THREE.Object3D, object2: THREE.Object3D): boolean {
-        // Sprawdzamy czy jeden z obiektów jest pociskiem
-        const bullet = object1.name === 'bullet' ? object1 : (object2.name === 'bullet' ? object2 : null);
-        if (bullet) {
-            // Jeśli drugi obiekt to samolot który wystrzelił pocisk, ignorujemy kolizję
-            const otherObject = bullet === object1 ? object2 : object1;
-            if (otherObject === this.airplane && (bullet as any).userData.shooterId === this.airplane.id) {
-                return false;
-            }
-        }
-
-        // Ignorujemy kolizje z chmurami i efektami
-        if (this.clouds.includes(object1 as THREE.Mesh) || 
-            this.clouds.includes(object2 as THREE.Mesh) ||
-            this.explosions.includes(object1 as THREE.Points) || 
-            this.explosions.includes(object2 as THREE.Points) ||
-            object1 === this.afterburnerMesh ||
-            object2 === this.afterburnerMesh) {
-            return false;
-        }
-
-        // Dodajemy margines bezpieczeństwa dla kolizji z samolotem
-        if (object1 === this.airplane || object2 === this.airplane) {
-            const box1 = new THREE.Box3().setFromObject(object1);
-            const box2 = new THREE.Box3().setFromObject(object2);
-            
-            // Powiększamy bounding box samolotu o margines
-            const margin = 2;
-            if (object1 === this.airplane) {
-                box1.min.subScalar(margin);
-                box1.max.addScalar(margin);
-            } else {
-                box2.min.subScalar(margin);
-                box2.max.addScalar(margin);
-            }
-            return box1.intersectsBox(box2);
-        }
-
-        // Sprawdzanie trafienia w kota
-        if (object1.name === 'bullet' && this.cats.includes(object2 as THREE.Group)) {
-            this.score += 12; // Dodawanie punktów za trafienie kota
-            this.updateScoreDisplay();
-            return true;
-        }
-        if (object2.name === 'bullet' && this.cats.includes(object1 as THREE.Group)) {
-            this.score += 12; // Dodawanie punktów za trafienie kota
-            this.updateScoreDisplay();
-            return true;
-        }
-
-        // Standardowa kolizja dla pozostałych obiektów
-        const box1 = new THREE.Box3().setFromObject(object1);
-        const box2 = new THREE.Box3().setFromObject(object2);
-        return box1.intersectsBox(box2);
-    }
-
     private updateBullets(): void {
         const now = Date.now();
 
@@ -771,17 +725,32 @@ class FlightSimulator {
 
             let hasCollision = false;
 
-            // Sprawdzamy kolizje z obiektami stałymi
-            for (const object of this.scene.children) {
-                if (hasCollision) break;
-                
-                if (object instanceof THREE.Mesh && 
-                    object !== bullet && 
-                    object !== this.terrain) {
-                    
-                    if (this.checkCollision(bullet, object)) {
-                        hasCollision = true;
-                        this.createExplosion(bullet.position.clone());
+            // Najpierw sprawdzamy kolizje z kotami
+            for (const cat of this.cats) {
+                if (this.checkCollision(bullet, cat)) {
+                    console.log('Trafienie w kota!');
+                    this.score += 12;
+                    this.updateScoreDisplay();
+                    this.createExplosion(bullet.position.clone());
+                    hasCollision = true;
+                    break;
+                }
+            }
+
+            // Jeśli nie było kolizji z kotem, sprawdzamy inne obiekty
+            if (!hasCollision) {
+                for (const object of this.scene.children) {
+                    if (object instanceof THREE.Mesh && 
+                        object !== bullet && 
+                        object !== this.terrain && 
+                        object !== this.afterburnerMesh &&
+                        !this.clouds.includes(object)) {
+                        
+                        if (this.checkCollision(bullet, object)) {
+                            this.createExplosion(bullet.position.clone());
+                            hasCollision = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -797,6 +766,26 @@ class FlightSimulator {
                 this.bullets.splice(i, 1);
             }
         }
+    }
+
+    private checkCollision(object1: THREE.Object3D, object2: THREE.Object3D): boolean {
+        // Ignorujemy kolizje między pociskiem a samolotem
+        if ((object1.name === 'bullet' && object2 === this.airplane) ||
+            (object2.name === 'bullet' && object1 === this.airplane)) {
+            return false;
+        }
+
+        // Ignorujemy kolizje z chmurami i efektami
+        if (this.clouds.includes(object1 as THREE.Mesh) || 
+            this.clouds.includes(object2 as THREE.Mesh) ||
+            this.explosions.includes(object1 as THREE.Points) || 
+            this.explosions.includes(object2 as THREE.Points)) {
+            return false;
+        }
+
+        const box1 = new THREE.Box3().setFromObject(object1);
+        const box2 = new THREE.Box3().setFromObject(object2);
+        return box1.intersectsBox(box2);
     }
 
     private onMouseDown(event: MouseEvent): void {

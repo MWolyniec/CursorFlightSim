@@ -8,15 +8,37 @@
         body {
             margin: 0;
             overflow: hidden;
+            background-color: #000;
         }
         canvas {
-            width: 100vw;
-            height: 100vh;
             display: block;
+        }
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+            text-align: center;
         }
     </style>
 </head>
 <body>
-    <script type="module" src="/src/main.ts"></script>
+    <div id="loading">Ładowanie symulatora...</div>
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.157.0/build/three.module.js';
+        window.THREE = THREE;
+        
+        // Dynamiczne ładowanie głównego skryptu
+        const script = document.createElement('script');
+        script.src = './dist/main.js';
+        script.type = 'module';
+        script.onload = () => {
+            document.getElementById('loading').style.display = 'none';
+        };
+        document.body.appendChild(script);
+    </script>
 </body>
 </html> 

@@ -31,6 +31,12 @@ class FlightSimulator {
     private isGameStarted = false;
     private isHardMode = false;
     private bigCat: THREE.Group | null = null;
+    private frustum: THREE.Frustum;
+    private cameraViewMatrix: THREE.Matrix4;
+    private objectsToUpdate: THREE.Object3D[] = [];
+    private static readonly VIEW_DISTANCE = 30000;
+    private static readonly CULLING_INTERVAL = 1000; // ms
+    private lastCullingTime = 0;
 
     constructor() {
         console.log('Inicjalizacja symulatora...');
@@ -116,6 +122,12 @@ class FlightSimulator {
         // Start animacji
         this.animate();
         console.log('Inicjalizacja zakończona!');
+
+        this.frustum = new THREE.Frustum();
+        this.cameraViewMatrix = new THREE.Matrix4();
+        
+        // Optymalizacja renderera
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     }
 
     private startGame(isHard: boolean): void {
@@ -165,12 +177,14 @@ class FlightSimulator {
     }
 
     private createTerrain(): void {
-        const size = 40000; // Dwukrotnie większy teren
-        const geometry = new THREE.PlaneGeometry(size, size, 400, 400);
+        const size = 40000;
+        // Zmniejszamy ilość segmentów dla lepszej wydajności
+        const segments = 200;
+        const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
         
         const material = new THREE.MeshPhongMaterial({ 
             color: 0x3d8c40,
-            side: THREE.DoubleSide,
+            side: THREE.FrontSide, // Zmiana z DoubleSide na FrontSide
             shininess: 0
         });
 
@@ -180,25 +194,55 @@ class FlightSimulator {
         this.terrain.receiveShadow = true;
         
         this.scene.add(this.terrain);
-
-        // Dodawanie drzew na terenie
         this.createGroundTrees();
     }
 
     private createGroundTrees(): void {
         const terrainSize = 20000;
-        const treeCount = 2000;
+        const treeCount = 1000; // Zmniejszona liczba drzew
         const minDistanceFromWater = 50;
+        const treeGeometries = this.createTreeTemplates();
 
         for (let i = 0; i < treeCount; i++) {
             const x = (Math.random() - 0.5) * terrainSize;
             const z = (Math.random() - 0.5) * terrainSize;
 
-            // Sprawdzanie czy nie jest to pozycja jeziora
             if (!this.isNearWater(x, z, minDistanceFromWater) && !this.isNearBuilding(x, z)) {
-                this.createTree(x, 0, z, 30 + Math.random() * 50);
+                const templateIndex = Math.floor(Math.random() * treeGeometries.length);
+                const tree = treeGeometries[templateIndex].clone();
+                tree.position.set(x, 0, z);
+                this.scene.add(tree);
+                this.objectsToUpdate.push(tree);
             }
         }
+    }
+
+    private createTreeTemplates(): THREE.Group[] {
+        const templates: THREE.Group[] = [];
+        const variations = 3;
+
+        for (let i = 0; i < variations; i++) {
+            const height = 30 + Math.random() * 50;
+            const template = new THREE.Group();
+
+            const trunkGeometry = new THREE.CylinderGeometry(2, 4, height, 6);
+            const trunkMaterial = new THREE.MeshPhongMaterial({ color: 0x4d2926 });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+
+            const crownGeometry = new THREE.ConeGeometry(20, height, 8);
+            const crownMaterial = new THREE.MeshPhongMaterial({ color: 0x0b5c0b });
+            const crown = new THREE.Mesh(crownGeometry, crownMaterial);
+            crown.position.y = height * 0.7;
+
+            template.add(trunk);
+            template.add(crown);
+            template.castShadow = true;
+            template.receiveShadow = true;
+
+            templates.push(template);
+        }
+
+        return templates;
     }
 
     private isNearWater(x: number, z: number, minDistance: number): boolean {
@@ -229,26 +273,6 @@ class FlightSimulator {
             }
         }
         return false;
-    }
-
-    private createTree(x: number, y: number, z: number, height: number): void {
-        const trunkGeometry = new THREE.CylinderGeometry(2, 4, height, 6);
-        const trunkMaterial = new THREE.MeshPhongMaterial({ color: 0x4d2926 });
-        const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-
-        const crownGeometry = new THREE.ConeGeometry(20, height, 8);
-        const crownMaterial = new THREE.MeshPhongMaterial({ color: 0x0b5c0b });
-        const crown = new THREE.Mesh(crownGeometry, crownMaterial);
-        crown.position.y = height * 0.7;
-
-        const tree = new THREE.Group();
-        tree.add(trunk);
-        tree.add(crown);
-        tree.position.set(x, y + height/2, z);
-        tree.castShadow = true;
-        tree.receiveShadow = true;
-
-        this.scene.add(tree);
     }
 
     private createMountains(): void {
@@ -913,6 +937,34 @@ class FlightSimulator {
         }
     }
 
+    private updateVisibility(): void {
+        const now = Date.now();
+        if (now - this.lastCullingTime < FlightSimulator.CULLING_INTERVAL) return;
+        this.lastCullingTime = now;
+
+        this.camera.updateMatrixWorld();
+        this.cameraViewMatrix.multiplyMatrices(
+            this.camera.projectionMatrix,
+            this.camera.matrixWorldInverse
+        );
+        this.frustum.setFromProjectionMatrix(this.cameraViewMatrix);
+
+        for (const object of this.objectsToUpdate) {
+            if (!object.userData.boundingSphere) {
+                object.userData.boundingSphere = new THREE.Sphere();
+                const box = new THREE.Box3().setFromObject(object);
+                box.getBoundingSphere(object.userData.boundingSphere);
+            }
+
+            const distance = this.camera.position.distanceTo(object.position);
+            const sphere = object.userData.boundingSphere.clone();
+            sphere.center.copy(object.position);
+
+            object.visible = distance < FlightSimulator.VIEW_DISTANCE && 
+                           this.frustum.intersectsSphere(sphere);
+        }
+    }
+
     private animate(): void {
         if (this.isGameOver || this.isGameWon) {
             this.updateExplosions();
@@ -928,35 +980,38 @@ class FlightSimulator {
             return;
         }
 
-        // Aktualizacja punktów
+        // Optymalizacja aktualizacji
+        this.updateVisibility();
         this.updateScore();
-
-        // Aktualizacja kolizji
         this.checkCollisions();
         
-        // Animacja chmur
-        this.clouds.forEach(cloud => {
-            cloud.position.x += 0.2;
-            if (cloud.position.x > 10000) {
-                cloud.position.x = -10000;
+        // Optymalizacja animacji chmur
+        const time = Date.now() * 0.001;
+        this.clouds.forEach((cloud, index) => {
+            if (cloud.visible) {
+                cloud.position.x += 0.2;
+                if (cloud.position.x > 10000) {
+                    cloud.position.x = -10000;
+                }
             }
         });
 
-        // Animacja kotów
+        // Optymalizacja animacji kotów
         this.cats.forEach((cat, index) => {
-            const time = Date.now() * 0.001;
-            const radius = 2000;
-            const height = 1500 + Math.sin(time + index) * 200;
-            const angle = time * 0.2 + (Math.PI * 2 * index) / 5;
+            if (cat.visible) {
+                const radius = 2000;
+                const height = 1500 + Math.sin(time + index) * 200;
+                const angle = time * 0.2 + (Math.PI * 2 * index) / 5;
 
-            cat.position.x = Math.cos(angle) * radius;
-            cat.position.z = Math.sin(angle) * radius;
-            cat.position.y = height;
+                cat.position.x = Math.cos(angle) * radius;
+                cat.position.z = Math.sin(angle) * radius;
+                cat.position.y = height;
 
-            cat.rotation.y = -angle + Math.PI / 2;
+                cat.rotation.y = -angle + Math.PI / 2;
 
-            const tail = cat.children[3];
-            tail.rotation.z = Math.PI / 4 + Math.sin(time * 5) * 0.2;
+                const tail = cat.children[3];
+                tail.rotation.z = Math.PI / 4 + Math.sin(time * 5) * 0.2;
+            }
         });
 
         this.updateBullets();
